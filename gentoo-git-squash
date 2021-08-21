@@ -1,0 +1,50 @@
+#!/bin/bash
+#
+# Copyright (c) 2021, Matt Turner
+# SPDX-License-Identifier: BSD-2-Clause
+
+set -o pipefail
+
+: "${repouri:="https://anongit.gentoo.org/git/repo/sync/gentoo.git"}"
+: "${branch:="stable"}"
+: "${outdir:="/root"}"
+: "${name:="gentoo"}"
+: "${gitdir:="/tmp/gentoo.git"}"
+: "${persistentgitdir:=""}"
+: "${compression_level:="11"}"
+: "${compression:="zstd"}"
+: "${quiet:="--quiet"}"
+
+if [[ ! -d $gitdir ]]; then
+	args=(
+		--bare
+		--depth=1
+		-c gc.reflogExpire=0
+		-c gc.reflogExpireUnreachable=0
+		-c gc.rerereresolved=0
+		-c gc.rerereunresolved=0
+		-c gc.pruneExpire=now
+		--branch="${branch}"
+		"${repouri}"
+		"${gitdir}"
+	)
+	if [[ -n ${persistentgitdir} ]]; then
+		args+=(--reference "${persistentgitdir}" --dissociate)
+	fi
+	git clone ${quiet} "${args[@]}"
+fi
+
+git -C "${gitdir}" fetch ${quiet} --depth=1
+git -C "${gitdir}" update-ref HEAD FETCH_HEAD
+git -C "${gitdir}" gc ${quiet}
+
+git -C "${gitdir}" archive --format=tar "${branch}" | \
+	tar2sqfs "${outdir}"/"${name}".sqfs.tmp ${quiet} -c "${compression}" -X level="${compression_level}"
+ret=$?
+
+if [[ $ret -ne 0 ]]; then
+	rm "${outdir}"/"${name}".sqfs.tmp
+	exit $ret
+fi
+
+mv "${outdir}"/"${name}".sqfs{.tmp,}
