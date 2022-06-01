@@ -13,7 +13,7 @@ set -o pipefail
 : "${persistentgitdir:=""}"
 : "${compression_level:="11"}"
 : "${compression:="zstd"}"
-: "${quiet:="--quiet"}"
+[[ $1 == -v ]] || quiet="--quiet"
 
 if [[ ! -d $gitdir ]]; then
 	args=(
