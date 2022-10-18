@@ -10,6 +10,8 @@ set -o pipefail
 : "${outdir:="/root"}"
 : "${name:="gentoo"}"
 : "${gitdir:="/tmp/gentoo.git"}"
+: "${gpg_verify:="1"}"
+: "${key_path:="/usr/share/openpgp-keys/gentoo-release.asc"}"
 : "${persistentgitdir:=""}"
 : "${compression_level:="11"}"
 : "${compression:="zstd"}"
@@ -37,6 +39,17 @@ fi
 git -C "${gitdir}" fetch ${quiet} --depth=1
 git -C "${gitdir}" update-ref HEAD FETCH_HEAD
 git -C "${gitdir}" gc ${quiet}
+
+if [[ ${gpg_verify} == 1 ]] ; then
+	type -P gemato &>/dev/null || exit 1
+
+	verify_result=$(gemato gpg-wrap -K "${key_path}" -- git -C "${gitdir}" log -n1 --pretty=format:%G? 2>/dev/null) || exit 1
+
+	if [[ ${verify_result} != "G" ]] ; then
+		echo "Could not verify!"
+		exit 1
+	fi
+fi
 
 git -C "${gitdir}" archive --format=tar "${branch}" | \
 	tar2sqfs "${outdir}"/"${name}".sqfs.tmp ${quiet} -c "${compression}" -X level="${compression_level}"
