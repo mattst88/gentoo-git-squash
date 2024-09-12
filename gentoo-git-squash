@@ -43,7 +43,7 @@ git -C "${gitdir}" gc ${quiet}
 if [[ ${gpg_verify} == 1 ]] ; then
 	type -P gemato &>/dev/null || exit 1
 
-	verify_result=$(gemato gpg-wrap -K "${key_path}" -- git -C "${gitdir}" log -n1 --pretty=format:%G? 2>/dev/null) || exit 1
+	verify_result=$(gemato gpg-wrap -q -K "${key_path}" -- git -C "${gitdir}" log -n1 --pretty=format:%G? 2>/dev/null) || exit 1
 
 	if [[ ${verify_result} != "G" ]] ; then
 		echo "Could not verify!"
