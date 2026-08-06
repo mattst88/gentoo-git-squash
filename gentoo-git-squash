@@ -15,7 +15,18 @@ set -o pipefail
 : "${persistentgitdir:=""}"
 : "${compression_level:="11"}"
 : "${compression:="zstd"}"
+: "${format:="squashfs"}"
+: "${pcluster:="65536"}"
 [[ $1 == -v ]] || quiet="--quiet"
+
+case ${format} in
+	squashfs) ext="sqfs" ;;
+	erofs)    ext="erofs" ;;
+	*)
+		echo "Unknown format: ${format} (expected 'squashfs' or 'erofs')"
+		exit 1
+		;;
+esac
 
 if [[ ! -d $gitdir ]]; then
 	args=(
@@ -51,13 +62,27 @@ if [[ ${gpg_verify} == 1 ]] ; then
 	fi
 fi
 
-git -C "${gitdir}" archive --format=tar "${branch}" | \
-	tar2sqfs "${outdir}"/"${name}".sqfs.tmp ${quiet} -c "${compression}" -X level="${compression_level}"
-ret=$?
+out="${outdir}"/"${name}"."${ext}"
+
+if [[ ${format} == squashfs ]]; then
+	git -C "${gitdir}" archive --format=tar "${branch}" | \
+		tar2sqfs "${out}".tmp ${quiet} -c "${compression}" -X level="${compression_level}"
+	ret=$?
+else
+	git -C "${gitdir}" archive --format=tar "${branch}" | \
+		mkfs.erofs ${quiet} \
+			--tar=f \
+			-z"${compression}",level="${compression_level}" \
+			-C"${pcluster}" \
+			-Efragments,ztailpacking \
+			--workers="$(nproc)" \
+			"${out}".tmp /dev/stdin
+	ret=$?
+fi
 
 if [[ $ret -ne 0 ]]; then
-	rm "${outdir}"/"${name}".sqfs.tmp
+	rm "${out}".tmp
 	exit $ret
 fi
 
-mv "${outdir}"/"${name}".sqfs{.tmp,}
+mv "${out}"{.tmp,}

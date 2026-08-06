@@ -1,9 +1,9 @@
 # gentoo-git-squash
-A script to create a SquashFS snapshot of a git repo
+A script to create a SquashFS or EROFS snapshot of a git repo
 
 ## What
 
-`gentoo-git-squash` is a bash script to update an arbitrary git repo and make a SquashFS snapshot of its contents.
+`gentoo-git-squash` is a bash script to update an arbitrary git repo and make a SquashFS or EROFS snapshot of its contents.
 
 ## Why
 
@@ -27,6 +27,20 @@ From the bare git repository, `git archive` and `tar2sqfs`†  are used to gener
 
 † A tool from the excellent [squashfs-tools-ng](https://github.com/AgentD/squashfs-tools-ng) package
 
+### EROFS
+
+Setting `$format` to `erofs` generates an [EROFS](https://erofs.docs.kernel.org/) image with `mkfs.erofs` instead, writing `$name.erofs` rather than `$name.sqfs`. EROFS is an interesting alternative for this workload:
+
+* SquashFS compresses fixed-size *input* blocks (128 KiB by default), so reading a 300-byte ebuild requires decompressing the whole block containing it. EROFS compresses into fixed-size *output* clusters and caches the decompressed pages in the normal page cache, so per-file read amplification is much lower and there is no separate bounded cache to thrash.
+* With `ztailpacking`, EROFS inlines the tails of small files into the inode block, which both saves space and avoids a second I/O for each tiny file — a good match for a repository where most files are under 4 KiB.
+* `fragments` packs small files together so they can be compressed at all. This is not optional for this workload: a 1.3 KiB ebuild cannot fill a compression cluster on its own, so without it EROFS stores nearly everything uncompressed. The script therefore always passes `-Efragments,ztailpacking`.
+
+`dedupe` is deliberately not enabled. On a ::gentoo snapshot it saved 0.1% while costing roughly 7x the build time — compressing fragments together already captures the duplication between identical ebuilds.
+
+The tradeoffs are portability and image size. EROFS features and compression algorithms became available in the kernel at different times (LZ4 in 5.4, LZMA in 5.16, `ztailpacking` in 5.19, `fragments` in 6.1, DEFLATE in 6.6, zstd more recently still), so an image is only as portable as the oldest kernel that must mount it. SquashFS has supported zstd since 4.14 and is enabled essentially everywhere.
+
+The `$pcluster` variable (default 65536) sets the EROFS physical cluster size. Larger values compress better but require the reader to support the big-pcluster feature.
+
 ## Usage
 I find it most convenient to run the script via a cron job or systemd timer and to mount the SquashFS image on-demand with `autofs` or systemd's automount capability.
 
@@ -34,4 +48,10 @@ An example `/etc/fstab` entry for use with systemd's automount:
 
 ````
 /root/gentoo.sqfs	/var/db/repos/gentoo	squashfs	noauto,x-systemd.automount,x-systemd.mount-timeout=30	0 0
+````
+
+Or, for an EROFS image:
+
+````
+/root/gentoo.erofs	/var/db/repos/gentoo	erofs	noauto,x-systemd.automount,x-systemd.mount-timeout=30	0 0
 ````
